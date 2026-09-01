@@ -1,79 +1,111 @@
+import random
+import numpy as np
 import networkx as nx
-import random 
-import numpy as np 
-random.seed(42)
-np.random.seed(42)
 
+
+# Config
+
+RANDOM_SEED = 42
 
 NUM_NORMAL_ACCOUNTS = 300
-NUM_MULE_ACCOUNTS_LAYERING = 8 #layering chain A->B->C
-NUM_MULE_ACCOUNTS_FUNNEL = 6 # many to one , high betweenness
-MULE_TRANSACTIONS_PER_HOP = 12
 NORMAL_TRANSACTIONS_PER_ACCOUNT = 10
-FUNNEL_SOURCE_ACCOUNTS = 15 #feeder accounts sending into the funnel
+NORMAL_AMOUNT_RANGE = (100, 5000)
 
-def generate_funnel_pattern(graph, num_funnel_accounts,start_id):
-    funnel_collector_ids = list(range(start_id,start_id+num_funnel_accounts))
-    for account_id in funnel_collector_ids:
-        graph.add_node(account_id,is_mule=True)
+NUM_LAYERING_ACCOUNTS = 8
+LAYERING_TRANSACTIONS_PER_HOP = 12
+LAYERING_AMOUNT_RANGE = (4000, 9000)
+LAYERING_HOP_GAP_SECONDS = 5
 
-    feeder_accounts = random.sample(range(NUM_NORMAL_ACCOUNTS),FUNNEL_SOURCE_ACCOUNTS)
-    for feeder in feeder_accounts:
-        collector = random.choice(funnel_collector_ids)
-        for _ in range(random.randint(2,5)):
-            amount = round(random.uniform(3000,8000),2)
-            timestamp = random.randint(0,10000)
-            graph.add_edge(feeder,collector,amount=amount,timestamp=timestamp)
+NUM_FUNNEL_COLLECTORS = 6
+NUM_FUNNEL_FEEDERS = 15
+FUNNEL_AMOUNT_RANGE = (3000, 8000)
 
-    return funnel_collector_ids
-
-def generate_normal_accounts(graph,num_accounts):
-    for account_id in range(num_accounts):
-        graph.add_node(account_id,is_mule=False)
+random.seed(RANDOM_SEED)
+np.random.seed(RANDOM_SEED)
 
 
-def add_normal_transactions(graph,num_accounts):
-    for account_id in range(num_accounts):
-        num_transactions = random.randint(1,NORMAL_TRANSACTIONS_PER_ACCOUNT)
-        for _ in range (num_transactions):
-            target = random.randint(0,num_accounts - 1)
-            while target == account_id:
-                target = random.randint(0,num_accounts-1)
-            amount = round(random.uniform(100,5000),2)
-            timestamp = random.randint(0,10000)
-            graph.add_edge(account_id,target,amount=amount,timestamp=timestamp)
 
-def generate_mule_ring(graph,num_mule_accounts,start_id):
-    mule_ids = list(range(start_id,start_id+num_mule_accounts))
+# Normal accounts
+
+def add_normal_accounts(graph):
+    for account_id in range(NUM_NORMAL_ACCOUNTS):
+        graph.add_node(account_id, is_mule=False)
+
+
+def add_normal_transactions(graph):
+    for account_id in range(NUM_NORMAL_ACCOUNTS):
+        num_transactions = random.randint(1, NORMAL_TRANSACTIONS_PER_ACCOUNT)
+        for _ in range(num_transactions):
+            target = _random_other_account(account_id, NUM_NORMAL_ACCOUNTS)
+            amount = round(random.uniform(*NORMAL_AMOUNT_RANGE), 2)
+            timestamp = random.randint(0, 10000)
+            graph.add_edge(account_id, target, amount=amount, timestamp=timestamp)
+
+
+def _random_other_account(exclude_id, pool_size):
+    target = random.randint(0, pool_size - 1)
+    while target == exclude_id:
+        target = random.randint(0, pool_size - 1)
+    return target
+
+
+# Layering chain
+
+def add_layering_ring(graph, start_id):
+    mule_ids = list(range(start_id, start_id + NUM_LAYERING_ACCOUNTS))
     for account_id in mule_ids:
-        graph.add_node(account_id,is_mule=True)
+        graph.add_node(account_id, is_mule=True)
+
+    for i in range(len(mule_ids) - 1):
+        source, target = mule_ids[i], mule_ids[i + 1]
+        base_timestamp = random.randint(0, 8000)
+        for hop in range(LAYERING_TRANSACTIONS_PER_HOP):
+            amount = round(random.uniform(*LAYERING_AMOUNT_RANGE), 2)
+            timestamp = base_timestamp + hop * LAYERING_HOP_GAP_SECONDS
+            graph.add_edge(source, target, amount=amount, timestamp=timestamp)
+
     return mule_ids
 
-def add_layering_transactions(graph, mule_ids):
-    for i in range(len(mule_ids) - 1):
-        source = mule_ids[i]
-        target = mule_ids[i + 1]
 
-        base_timestamp = random.randint(0, 8000)
+# Funnel pattern
 
-        for hop in range(MULE_TRANSACTIONS_PER_HOP):
-            amount = round(random.uniform(4000, 9000), 2)
-            timestamp = base_timestamp + hop * 5  # tight time gaps, simulating rapid pass-through
 
-            graph.add_edge(source, target, amount=amount, timestamp=timestamp)
+def add_funnel_ring(graph, start_id):
+    collector_ids = list(range(start_id, start_id + NUM_FUNNEL_COLLECTORS))
+    for account_id in collector_ids:
+        graph.add_node(account_id, is_mule=True)
+
+    feeder_accounts = random.sample(range(NUM_NORMAL_ACCOUNTS), NUM_FUNNEL_FEEDERS)
+    for feeder in feeder_accounts:
+        collector = random.choice(collector_ids)
+        for _ in range(random.randint(2, 5)):
+            amount = round(random.uniform(*FUNNEL_AMOUNT_RANGE), 2)
+            timestamp = random.randint(0, 10000)
+            graph.add_edge(feeder, collector, amount=amount, timestamp=timestamp)
+
+    return collector_ids
+
+
+
+# Assemble
 
 
 def build_graph():
     graph = nx.DiGraph()
-    generate_normal_accounts(graph, NUM_NORMAL_ACCOUNTS)
-    add_normal_transactions(graph, NUM_NORMAL_ACCOUNTS)
-    mule_ids = generate_mule_ring(graph, NUM_MULE_ACCOUNTS_LAYERING, start_id=NUM_NORMAL_ACCOUNTS)
-    add_layering_transactions(graph, mule_ids)
-    return graph
+
+    add_normal_accounts(graph)
+    add_normal_transactions(graph)
+
+    layering_ids = add_layering_ring(graph, start_id=NUM_NORMAL_ACCOUNTS)
+    funnel_ids = add_funnel_ring(graph, start_id=NUM_NORMAL_ACCOUNTS + NUM_LAYERING_ACCOUNTS)
+
+    mule_ids = layering_ids + funnel_ids
+    return graph, mule_ids
+
 
 if __name__ == "__main__":
-    g = build_graph()
+    g, mule_ids = build_graph()
     print(f"Total nodes: {g.number_of_nodes()}, total edges: {g.number_of_edges()}")
-    mule_nodes = [n for n, d in g.nodes(data=True) if d["is_mule"]]
-    print(f"Mule accounts: {mule_nodes}")
-    print(f"Sample mule edge: {list(g.edges(mule_nodes[0], data=True))[:2]}")
+    print(f"Mule accounts ({len(mule_ids)}): {mule_ids}")
+    print(f"Sample layering edge: {list(g.edges(mule_ids[0], data=True))[:1]}")
+    print(f"Sample funnel edge: {list(g.edges(mule_ids[-1], data=True))[:1]}")
