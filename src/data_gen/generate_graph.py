@@ -10,6 +10,22 @@ NUM_MULE_ACCOUNTS_LAYERING = 8 #layering chain A->B->C
 NUM_MULE_ACCOUNTS_FUNNEL = 6 # many to one , high betweenness
 MULE_TRANSACTIONS_PER_HOP = 12
 NORMAL_TRANSACTIONS_PER_ACCOUNT = 10
+FUNNEL_SOURCE_ACCOUNTS = 15 #feeder accounts sending into the funnel
+
+def generate_funnel_pattern(graph, num_funnel_accounts,start_id):
+    funnel_collector_ids = list(range(start_id,start_id+num_funnel_accounts))
+    for account_id in funnel_collector_ids:
+        graph.add_node(account_id,is_mule=True)
+
+    feeder_accounts = random.sample(range(NUM_NORMAL_ACCOUNTS),FUNNEL_SOURCE_ACCOUNTS)
+    for feeder in feeder_accounts:
+        collector = random.choice(funnel_collector_ids)
+        for _ in range(random.randint(2,5)):
+            amount = round(random.uniform(3000,8000),2)
+            timestamp = random.randint(0,10000)
+            graph.add_edge(feeder,collector,amount=amount,timestamp=timestamp)
+
+    return funnel_collector_ids
 
 def generate_normal_accounts(graph,num_accounts):
     for account_id in range(num_accounts):
