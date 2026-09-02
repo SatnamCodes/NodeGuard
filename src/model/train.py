@@ -11,8 +11,7 @@ from src.data_gen.node_features import compute_node_features
 from src.data_gen.to_pyg import graph_to_pyg_data
 from src.model.gnn import MuleGCN
 
-# Match the seed already used for data generation so the whole pipeline
-# (graph, split, model init) is reproducible end to end.
+# Same seed as generate_graph.py so the whole pipeline is reproducible.
 SEED = 42
 torch.manual_seed(SEED)
 
@@ -26,22 +25,13 @@ PATIENCE = 20
 
 
 def make_split_masks(y, seed=SEED):
-    """Stratified 60/20/20 train/val/test split, returned as boolean
-    masks over all nodes (not separate Data objects).
+    """Stratified 60/20/20 train/val/test split as boolean masks over all
+    nodes (not separate Data objects).
 
-    Splitting is stratified because mules are only ~4.5% of nodes (14/314):
-    a plain random split can, by chance, put very few or zero mule nodes
-    into test/val, making that split's accuracy meaningless either way
-    (undefined precision/recall, or a lucky/unlucky single example
-    deciding the whole score). stratify= keeps each split's mule ratio
-    close to the full dataset's ratio.
-
-    Masks (not separate Data objects) because message passing needs every
-    node's features/edges visible regardless of split — GCNConv aggregates
-    over `edge_index`, so a val/test node's *neighbors* still need to be
-    present in the graph during the forward pass. Only the *loss* is
-    restricted to train_mask nodes; val/test nodes are simply not counted
-    in that loss.
+    Stratified because mules are only ~4.5% of nodes — a plain random split
+    could easily land 0 mules in test/val by chance. Masks instead of
+    separate graphs because GCNConv still needs val/test nodes' neighbors
+    visible during the forward pass; only the loss is restricted to train_mask.
     """
     num_nodes = y.shape[0]
     indices = torch.arange(num_nodes)
@@ -63,24 +53,17 @@ def make_split_masks(y, seed=SEED):
 
 
 def make_class_weights(y, mask):
-    """Inverse-frequency class weights for CrossEntropyLoss, computed from
-    the TRAINING split only (val/test must stay untouched by anything that
-    shapes training, including this).
+    """Inverse-frequency class weights for CrossEntropyLoss, from the
+    training split only (val/test shouldn't influence training at all).
 
-    Without weighting, the loss is just an average over all training
-    nodes. With ~95% of nodes being "not mule", a model that predicts
-    "not mule" for everyone already gets ~95% of the loss "right" and the
-    gradient barely pushes it to ever predict "mule" — high accuracy,
-    ~0 recall on the class we actually care about. Weighting node class
-    c's loss term by 1/count(c) makes each CLASS contribute equally to
-    the loss regardless of how many nodes are in it, so mistakes on the
-    14 mule nodes matter as much in aggregate as mistakes on the ~270
-    normal ones.
+    Without this, predicting "not mule" for everyone already gets ~95% of
+    the loss right, so gradient descent barely bothers learning to predict
+    "mule". Weighting by 1/count makes each class matter equally in the loss.
     """
     y_train = y[mask]
     counts = torch.bincount(y_train, minlength=2).float()
     weights = 1.0 / counts
-    weights = weights / weights.sum()  # normalize, not required but keeps loss scale stable
+    weights = weights / weights.sum()  # just keeps the loss scale readable
     return weights
 
 
@@ -107,16 +90,10 @@ def precision_recall(logits, y, mask):
 
 
 def f1_score(precision, recall):
-    """Harmonic (not arithmetic) mean of precision and recall.
-
-    The harmonic mean is what makes this fix the degenerate-checkpoint bug:
-    it's pulled toward whichever of the two inputs is SMALLER, so a model
-    that "flags everything" (precision near 0, recall 1.0 — exactly what we
-    saw at epoch 1: precision 0.067, recall 1.000) still gets an F1 near 0,
-    because a near-zero precision drags the harmonic mean down with it. A
-    plain average of 0.067 and 1.000 would instead score that degenerate
-    model at ~0.53, still looking "good" — which is why an arithmetic mean
-    wouldn't fix this, only the harmonic mean does.
+    """Harmonic mean of precision/recall — not arithmetic. Harmonic mean
+    gets pulled toward whichever is smaller, so a "flag everything" model
+    (precision 0.067, recall 1.0, like our epoch-1 checkpoint) still scores
+    near 0 instead of the ~0.53 a plain average would give it.
     """
     if precision + recall == 0:
         return 0.0
@@ -143,24 +120,11 @@ def main():
     )
     optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
 
-    # We track the BEST validation F1 seen so far, and how many epochs it's
-    # been since it last improved (the "patience" counter). Training loss
-    # falling every epoch does not mean the model is getting better at the
-    # job we care about — we already saw it keep dropping past epoch 20
-    # while val recall fell from 0.667 to 0.333, i.e. the model was
-    # memorizing the 8 training-set mules rather than learning a pattern
-    # that generalizes.
-    #
-    # We checkpoint on F1 rather than recall alone because recall alone is
-    # gameable: a model that predicts "mule" for nearly every node gets
-    # perfect recall for free. We hit this for real — epoch 1's near-random
-    # weights scored val recall 1.000 (precision 0.067), and a recall-only
-    # checkpoint locked that degenerate model in as "best" before training
-    # had learned anything. F1 collapses toward 0 whenever precision OR
-    # recall is near 0, so that failure mode can no longer look like a win.
-    # (Plain accuracy is unusable here for the same underlying reason as the
-    # class-weighted loss above: ~95% of nodes are "not mule", so accuracy
-    # stays high even while recall on mules is 0.)
+    # Track best val F1 + a patience counter for early stopping. Training
+    # loss kept falling well past the point where val recall started
+    # decaying (overfitting on the 8 training mules) — checkpointing on F1
+    # instead of recall avoids locking in a degenerate "flag everything"
+    # epoch like we saw at epoch 1 (recall 1.0, precision 0.067).
     best_val_f1 = -1.0
     best_epoch = 0
     epochs_since_improvement = 0
@@ -169,11 +133,8 @@ def main():
     for epoch in range(1, EPOCHS + 1):
         model.train()
         optimizer.zero_grad()
-        # Forward pass sees the WHOLE graph (transductive setting: unlike
-        # image classification, there's one fixed graph and we're
-        # predicting labels for a held-out subset of its nodes, not
-        # generalizing to unseen graphs). Loss is computed only over
-        # train_mask nodes so val/test labels never influence the gradient.
+        # Forward pass sees the whole graph (transductive setting) — loss
+        # is just restricted to train_mask so val/test never leaks into it.
         out = model(data.x, data.edge_index)
         loss = F.cross_entropy(out[train_mask], data.y[train_mask], weight=class_weights)
         loss.backward()
@@ -197,11 +158,8 @@ def main():
             )
 
         if val_f1 > best_val_f1:
-            # New best: checkpoint it immediately. We save to disk (not just
-            # keep a copy in a variable) so the best weights survive even if
-            # training crashes or we stop the process, and so BEST_MODEL_SAVE_PATH
-            # always reflects the best model found so far, independent of
-            # where training currently is.
+            # Save to disk right away, not just in memory, so we don't lose
+            # the best model if training crashes or gets interrupted later.
             best_val_f1 = val_f1
             best_epoch = epoch
             epochs_since_improvement = 0
@@ -224,12 +182,8 @@ def main():
             f"(best val F1 {best_val_f1:.3f} at epoch {best_epoch})"
         )
 
-    # Reload the BEST checkpoint before final evaluation. Without this, the
-    # model in memory is whatever the LAST epoch produced — which, as we
-    # saw, can already be a worse, overfit version of the model even though
-    # a better checkpoint exists on disk. Loading it back guarantees the
-    # test-set numbers we report describe the best model we actually found,
-    # not whatever state training happened to end on.
+    # Reload the best checkpoint — whatever's in memory now is just the
+    # last epoch, which can be a worse, overfit version of the model.
     model.load_state_dict(torch.load(BEST_MODEL_SAVE_PATH, weights_only=True))
 
     model.eval()

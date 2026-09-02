@@ -1,7 +1,6 @@
 
-"""Computes per-node numeric features from the transaction graph, for
-input into the GNN. These are the same category of signal real AML
-systems use: degree, transaction velocity, and volume.
+"""Per-node features for the GNN — degree, avg amounts, volume. Same
+category of signal real AML systems use.
 """
 
 import numpy as np

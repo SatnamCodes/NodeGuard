@@ -15,31 +15,23 @@ def graph_to_pyg_data(graph, features):
 
     Returns a single torch_geometric.data.Data with x, edge_index, y set.
     """
-    # Node ids are contiguous ints 0..N-1 already, but we sort explicitly
-    # anyway: PyG has no concept of a node "id", only a row index into x.
-    # If the row order here doesn't match the order used to build y, every
-    # node gets silently paired with the wrong label — no error, just a
-    # model that can't learn. Sorting pins that order down explicitly
-    # instead of relying on dict/graph iteration order being stable.
+    # PyG has no concept of node "id", just row index — sort explicitly so
+    # row i of x/y always lines up with account i. Get this wrong and nodes
+    # get silently paired with the wrong label, no error, model just can't learn.
     nodes = sorted(graph.nodes())
 
     raw_x = [features[n] for n in nodes]
 
-    # The 5 features live on very different scales (degree is a small int,
-    # total_volume can be in the thousands). A GCN layer is just a linear
-    # layer applied per-node before aggregating neighbors, so an unscaled
-    # feature with a huge range dominates the weighted sum and drowns out
-    # the others. StandardScaler rescales every column to mean 0, std 1.
+    # Features are on wildly different scales (degree ~10s, volume ~10,000s).
+    # Unscaled, the big one dominates the GCN's linear layer and drowns out the rest.
     x = StandardScaler().fit_transform(raw_x)
     x = torch.tensor(x, dtype=torch.float)
 
     y = torch.tensor([int(graph.nodes[n]["is_mule"]) for n in nodes], dtype=torch.long)
 
-    # PyG expects edge_index as shape [2, num_edges]: row 0 = source node
-    # indices, row 1 = target node indices for every edge, NOT a [num_edges, 2]
-    # list of (source, target) pairs. Building it as a list of pairs and
-    # forgetting the .t() (transpose) is the single most common PyG shape
-    # bug for beginners.
+    # PyG wants edge_index as [2, num_edges] (row 0 = sources, row 1 =
+    # targets), not [num_edges, 2] — hence the transpose below. Forgetting
+    # it is the classic PyG shape bug.
     edge_list = list(graph.edges())
     edge_index = torch.tensor(edge_list, dtype=torch.long).t().contiguous()
 
