@@ -3,5 +3,3 @@ torch_geometric==2.8.0.post1
 networkx==3.6.1
 scikit-learn==1.9.0
 numpy==2.4.3
-streamlit==1.63.0
-plotly==7.0.0

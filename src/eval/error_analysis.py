@@ -151,9 +151,10 @@ def main():
         "breakdown as a qualitative signal, not a statistically solid claim."
     )
 
+    false_positive_ids = [node_id for node_id, _pattern in false_positives]
     print_false_positive_feature_comparison(false_positives, features, mule_ids, graph)
-    print_neighbor_inspection([171, 219], graph)
-    print_two_hop_trace([171, 219], graph)
+    print_neighbor_inspection(false_positive_ids, graph)
+    print_two_hop_trace(false_positive_ids, graph)
 
 
 FEATURE_NAMES = ["in_degree", "out_degree", "avg_in_amount", "avg_out_amount", "total_volume"]
