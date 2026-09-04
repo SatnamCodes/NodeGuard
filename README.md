@@ -87,26 +87,6 @@ from its own features and its neighbors'.
   including val/test, not train-only. Leaks scale, not labels. Small, but
   not textbook-correct.
 
-## The full report
 
-There's a much longer writeup (`REPORT.md`, gitignored, it's a personal
-interview-prep doc, not meant for public consumption) that walks every
-file line by line, explains every non-obvious design choice, and covers
-the debugging story in more depth than makes sense here. This README is
-the short version on purpose.
-
-## Running it
-
-```bash
-pip install -r requirements.txt
-
-python -m src.data_gen.generate_graph   # sanity-check the synthetic graph
-python -m src.model.train               # train + save best checkpoint
-python -m src.eval.metrics              # headline precision/recall/F1
-python -m src.eval.error_analysis       # per-node / per-pattern deep dive
-python -m src.app.export_data           # regenerate web/data.json
-
-cd web && vercel --prod                 # deploy the static demo
-```
 
 Detection only. Nothing here takes automated action on any account.
