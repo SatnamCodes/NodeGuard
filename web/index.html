@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>NodeGuard — Mule-Ring Detection</title>
+  <title>NodeGuard: Mule-Ring Detection</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -16,34 +16,34 @@
   </nav>
 
   <section id="overview" class="hero">
-    <div class="eyebrow">Razorpay AI Buildathon — Track 2</div>
+    <div class="eyebrow">Razorpay AI Buildathon, Track 2</div>
     <h1>Mule-ring detection,<br />built on graph structure.</h1>
     <p class="lede">
       A graph neural network flags coordinated mule-account rings by
-      looking at who an account is connected to — not just its own
+      looking at who an account is connected to, not just its own
       transaction history.
     </p>
 
     <div class="hero-stat">
-      <div class="value" id="hero-recall">—</div>
-      <div class="label">Recall — real mule accounts correctly caught in the held-out test set</div>
+      <div class="value" id="hero-recall">...</div>
+      <div class="label">Recall: real mule accounts correctly caught in the held-out test set</div>
     </div>
 
     <div class="stat-grid">
       <div class="stat-cell">
-        <div class="value" id="stat-precision">—</div>
+        <div class="value" id="stat-precision">...</div>
         <div class="label">Precision</div>
       </div>
       <div class="stat-cell">
-        <div class="value" id="stat-f1">—</div>
+        <div class="value" id="stat-f1">...</div>
         <div class="label">F1</div>
       </div>
       <div class="stat-cell">
-        <div class="value" id="stat-fp">—</div>
+        <div class="value" id="stat-fp">...</div>
         <div class="label">False alarms</div>
       </div>
       <div class="stat-cell">
-        <div class="value" id="stat-mules">—</div>
+        <div class="value" id="stat-mules">...</div>
         <div class="label">Mules in test set</div>
       </div>
     </div>
@@ -56,13 +56,13 @@
   <section class="tight">
     <h2>Why a graph, not a flat feature table</h2>
     <div class="panel">
-      A single mule account often doesn't look suspicious on its own —
+      A single mule account often doesn't look suspicious on its own:
       normal-ish transaction count, normal-ish amounts. What gives it away
-      is who it's connected to: a chain of accounts passing the same money
+      is who it's connected to. A chain of accounts passing the same money
       along fast, or a cluster of ordinary accounts quietly feeding into
       one collection point. A flat per-account model can't see that,
       because "my neighbor also looks weird" isn't a column in a feature
-      table. A GNN can — it passes information along edges, so a node's
+      table. A GNN can. It passes information along edges, so a node's
       prediction is built from its own features <em>and</em> its
       neighbors'.
     </div>
@@ -75,6 +75,16 @@
     <h2>Inspect any test-set account.</h2>
     <p class="lede">See the model's prediction, its confidence, and the immediate transaction neighborhood that shaped it.</p>
 
+    <div class="tour-box">
+      <div class="tour-label">Quick tour for evaluators</div>
+      <div class="tour-items">
+        <button class="tour-btn" data-node="304">304, a caught mule</button>
+        <button class="tour-btn" data-node="310">310, a missed mule</button>
+        <button class="tour-btn" data-node="94">94, an explainable false positive</button>
+        <button class="tour-btn" data-node="171">171, an unexplained false positive</button>
+      </div>
+    </div>
+
     <div class="lookup-controls">
       <select id="node-select"></select>
     </div>
@@ -84,7 +94,7 @@
         <div class="legend">
           <span><span class="dot" style="background:#ff3b30"></span>predicted mule</span>
           <span><span class="dot" style="background:#06b6a8"></span>predicted normal</span>
-          <span>arrows = transaction direction</span>
+          <span>arrows show transaction direction</span>
           <span>scroll to zoom, drag to pan, click a ringed neighbor to jump in</span>
         </div>
         <canvas id="graph-canvas" width="640" height="520"></canvas>
@@ -93,17 +103,17 @@
       <div class="info-card">
         <div class="info-row">
           <div class="field-label">PREDICTION</div>
-          <span class="chip" id="pred-chip">—</span>
+          <span class="chip" id="pred-chip">...</span>
         </div>
         <div class="info-row">
           <div class="field-label">CONFIDENCE</div>
-          <div class="confidence-value" id="confidence-value">—</div>
+          <div class="confidence-value" id="confidence-value">...</div>
         </div>
         <div class="info-row">
           <div class="field-label">TRUE LABEL</div>
-          <span class="chip" id="true-chip">—</span>
+          <span class="chip" id="true-chip">...</span>
         </div>
-        <div class="outcome" id="outcome-text">—</div>
+        <div class="outcome" id="outcome-text">...</div>
       </div>
     </div>
   </section>
@@ -113,26 +123,26 @@
   <section id="errors">
     <div class="eyebrow">Error Analysis</div>
     <h2>Where it succeeds, where it fails.</h2>
-    <p class="lede">Read honestly — including the mistakes that don't have a tidy explanation.</p>
+    <p class="lede">Read honestly, including the mistakes that don't have a tidy explanation.</p>
 
     <div class="pattern-grid">
       <div class="pattern-card">
-        <div class="value" id="layering-recall">—</div>
+        <div class="value" id="layering-recall">...</div>
         <div class="label">Layering-chain recall</div>
-        <div class="sub" id="layering-frac">—</div>
+        <div class="sub" id="layering-frac">...</div>
       </div>
       <div class="pattern-card">
-        <div class="value" id="funnel-recall">—</div>
+        <div class="value" id="funnel-recall">...</div>
         <div class="label">Funnel recall</div>
-        <div class="sub" id="funnel-frac">—</div>
+        <div class="sub" id="funnel-frac">...</div>
       </div>
     </div>
 
     <div class="panel">
-      Funnel mules are harder to catch: they only look unusual once the
+      Funnel mules are harder to catch. They only look unusual once the
       model sees that their <em>neighbor</em> (the collector) has an
-      abnormal in-degree — that needs 2-hop reasoning, learned from just 6
-      funnel-collector examples in training.
+      abnormal in-degree, and that needs 2-hop reasoning, learned from just
+      6 funnel-collector examples in training.
     </div>
 
     <h2 style="margin-top:56px;">False positives</h2>
@@ -140,8 +150,8 @@
   </section>
 
   <footer>
-    NodeGuard — built for Razorpay's AI Buildathon, Track 2 (AI Risk Manager).
-    <br />Detection only — no automated action is taken on any account.
+    NodeGuard, built for Razorpay's AI Buildathon, Track 2 (AI Risk Manager).
+    <br />Detection only. No automated action is taken on any account.
   </footer>
 
   <script src="app.js"></script>

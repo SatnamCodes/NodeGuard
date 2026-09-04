@@ -25,6 +25,15 @@ async function main() {
   document.getElementById("node-select").addEventListener("change", (e) => {
     renderAccountLookup(Number(e.target.value));
   });
+
+  document.querySelectorAll(".tour-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const nodeId = Number(btn.dataset.node);
+      renderAccountLookup(nodeId);
+      document.getElementById("lookup").scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  });
+
   renderAccountLookup(DATA.test_node_ids[0]);
 
   setupNav();
@@ -38,7 +47,7 @@ function renderOverview() {
   document.getElementById("stat-fp").textContent = m.false_positive;
   document.getElementById("stat-mules").textContent = m.test_mule_count;
   document.getElementById("caveat-text").textContent =
-    `Sample size — test set contains only ${m.test_mule_count} mule accounts. ` +
+    `Sample size: test set contains only ${m.test_mule_count} mule accounts. ` +
     `Read these numbers as directional signal, not a statistically precise benchmark.`;
 }
 
@@ -70,13 +79,13 @@ function renderAccountLookup(nodeId) {
   const outcome = document.getElementById("outcome-text");
   let text, flagged;
   if (node.true_mule && node.predicted_mule) {
-    text = "TRUE POSITIVE — real mule, correctly caught."; flagged = true;
+    text = "TRUE POSITIVE: real mule, correctly caught."; flagged = true;
   } else if (node.true_mule && !node.predicted_mule) {
-    text = "FALSE NEGATIVE — real mule, missed."; flagged = false;
+    text = "FALSE NEGATIVE: real mule, missed."; flagged = false;
   } else if (!node.true_mule && node.predicted_mule) {
-    text = "FALSE POSITIVE — normal account, flagged in error."; flagged = true;
+    text = "FALSE POSITIVE: normal account, flagged in error."; flagged = true;
   } else {
-    text = "TRUE NEGATIVE — normal account, correctly cleared."; flagged = false;
+    text = "TRUE NEGATIVE: normal account, correctly cleared."; flagged = false;
   }
   outcome.textContent = text;
   outcome.className = "outcome" + (flagged ? " flagged" : "");
@@ -102,6 +111,9 @@ function initNeighborhoodGraph(node) {
     };
   });
 
+  // stop the previous account's animation loop before starting a new one
+  if (graphState && graphState.animId) cancelAnimationFrame(graphState.animId);
+
   graphState = {
     canvas,
     ctx: canvas.getContext("2d"),
@@ -112,15 +124,21 @@ function initNeighborhoodGraph(node) {
     panY: 0,
     isDragging: false,
     dragMoved: false,
+    animId: null,
   };
 
-  renderGraphFrame();
+  const loop = () => {
+    renderGraphFrame();
+    graphState.animId = requestAnimationFrame(loop);
+  };
+  loop();
 }
 
 function renderGraphFrame() {
   if (!graphState) return;
   const { ctx, canvas, node, positions, scale, panX, panY } = graphState;
   const w = canvas.width, h = canvas.height;
+  const now = performance.now();
 
   ctx.clearRect(0, 0, w, h);
   ctx.save();
@@ -128,30 +146,39 @@ function renderGraphFrame() {
   ctx.scale(scale, scale);
 
   const center = positions[node.id];
+  const labels = [];
 
-  // edges first, nodes on top
-  node.neighbors.forEach((nb) => {
+  // edges, then a small pulse traveling along each one to stand in for
+  // "money moving" in that direction, then node circles, labels last so
+  // they always sit on top and stay legible regardless of what's under them
+  node.neighbors.forEach((nb, i) => {
     const p = positions[nb.id];
     if (nb.direction === "in" || nb.direction === "both") {
       drawArrow(ctx, p.x, p.y, center.x, center.y, BORDER);
+      drawPulse(ctx, p.x, p.y, center.x, center.y, now, i);
     }
     if (nb.direction === "out" || nb.direction === "both") {
       drawArrow(ctx, center.x, center.y, p.x, p.y, BORDER);
+      drawPulse(ctx, center.x, center.y, p.x, p.y, now, i + 0.5);
     }
   });
 
-  drawNode(ctx, center.x, center.y, 15, node.predicted_mule ? RED : TEAL, true, node.id, false);
+  drawNode(ctx, center.x, center.y, 15, node.predicted_mule ? RED : TEAL, true);
+  labels.push({ x: center.x, y: center.y, r: 15, text: node.id });
 
   node.neighbors.forEach((nb) => {
     const p = positions[nb.id];
     const clickable = String(nb.id) in DATA.nodes;
-    drawNode(ctx, p.x, p.y, 9, nb.predicted_mule ? RED : TEAL, false, nb.id, clickable);
+    drawNode(ctx, p.x, p.y, 9, nb.predicted_mule ? RED : TEAL, false, clickable);
+    labels.push({ x: p.x, y: p.y, r: 9, text: nb.id });
   });
+
+  labels.forEach((l) => drawLabel(ctx, l.x, l.y, l.r, l.text));
 
   ctx.restore();
 }
 
-function drawNode(ctx, x, y, r, color, selected, label, clickable) {
+function drawNode(ctx, x, y, r, color, selected, clickable) {
   ctx.beginPath();
   ctx.arc(x, y, r, 0, 2 * Math.PI);
   ctx.fillStyle = color;
@@ -161,16 +188,37 @@ function drawNode(ctx, x, y, r, color, selected, label, clickable) {
     ctx.strokeStyle = TEXT;
     ctx.stroke();
   } else if (clickable) {
-    // a thin ring marks neighbors you can click into — otherwise it's not
+    // a thin ring marks neighbors you can click into, otherwise it's not
     // obvious which nodes are inspectable vs. just context
     ctx.lineWidth = 1.5;
     ctx.strokeStyle = "#ffffff";
     ctx.stroke();
   }
-  ctx.fillStyle = TEXT;
+}
+
+// Drawn in its own final pass, on a small opaque backing plate, so an edge
+// or arrowhead passing directly under a label (common for the node
+// straight above center) never gets visually cut in half by the text.
+function drawLabel(ctx, x, y, r, text) {
+  const str = String(text);
   ctx.font = "11px 'SF Mono', 'IBM Plex Mono', monospace";
+  const metrics = ctx.measureText(str);
+  const padX = 4, padY = 3;
+  const boxW = metrics.width + padX * 2;
+  const boxH = 13 + padY * 2;
+  const boxX = x - boxW / 2;
+  const boxY = y - r - 10 - boxH;
+
+  ctx.fillStyle = "#ffffff";
+  ctx.beginPath();
+  ctx.roundRect(boxX, boxY, boxW, boxH, 4);
+  ctx.fill();
+
+  ctx.fillStyle = TEXT;
   ctx.textAlign = "center";
-  ctx.fillText(String(label), x, y - r - 8);
+  ctx.textBaseline = "middle";
+  ctx.fillText(str, x, boxY + boxH / 2 + 1);
+  ctx.textBaseline = "alphabetic";
 }
 
 function drawArrow(ctx, x1, y1, x2, y2, color) {
@@ -195,6 +243,23 @@ function drawArrow(ctx, x1, y1, x2, y2, color) {
   ctx.lineTo(ex - headLen * Math.cos(angle + Math.PI / 6), ey - headLen * Math.sin(angle + Math.PI / 6));
   ctx.closePath();
   ctx.fillStyle = color;
+  ctx.fill();
+}
+
+const PULSE_PERIOD_MS = 1600;
+
+// A small dot traveling source -> target, standing in for a transaction
+// moving along that edge. `offset` staggers edges so they don't all pulse
+// in lockstep, which would read as a single blink instead of movement.
+function drawPulse(ctx, x1, y1, x2, y2, now, offset) {
+  const t = ((now / PULSE_PERIOD_MS + offset * 0.31) % 1 + 1) % 1;
+  const px = x1 + (x2 - x1) * t;
+  const py = y1 + (y2 - y1) * t;
+  const fade = Math.sin(t * Math.PI); // fades in/out at each end, not a hard cut
+
+  ctx.beginPath();
+  ctx.arc(px, py, 2.5, 0, 2 * Math.PI);
+  ctx.fillStyle = `rgba(29, 29, 31, ${0.45 * fade})`;
   ctx.fill();
 }
 
